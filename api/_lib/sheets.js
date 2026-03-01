@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+const { google } = require("googleapis");
 
 const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
 
@@ -51,7 +51,7 @@ async function writeNotification(sheets, { tur, oyun, kisi, gorev, aciklama }) {
   }
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS headers
   res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL || "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
