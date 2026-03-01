@@ -31,11 +31,7 @@ async function getSheetData(sheets, sheetName) {
 module.exports = async function handler(req, res) {
   // ----- CORS -----
   const origin = req.headers.origin || "";
-  const allowedOrigins = [
-    "https://izmir-dt.github.io",
-    "http://localhost:5173",
-    "http://localhost:3000",
-  ];
+  const allowedOrigins = ["https://izmir-dt.github.io"];
 
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -93,13 +89,18 @@ module.exports = async function handler(req, res) {
 
     // APPEND ROW
     if (sheetName && action === "row" && req.method === "POST") {
-      const { values } = req.body;
+      const body = req.body;
+
+      // Eğer frontend tek satır array gönderiyorsa
+      const values = Array.isArray(body.values[0])
+        ? body.values
+        : [body.values];
 
       await sheets.spreadsheets.values.append({
         spreadsheetId: SPREADSHEET_ID,
         range: sheetName,
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: [values] },
+        requestBody: { values },
       });
 
       return res.json({ success: true });
