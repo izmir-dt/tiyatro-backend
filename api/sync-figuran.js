@@ -1,2 +1,2 @@
-import handler from './_lib/sheets.js';
-export default handler;
+const handler = require('./_lib/sheets.js');
+module.exports = handler;
