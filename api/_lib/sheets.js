@@ -27,7 +27,6 @@ const url = new URL(req.url, `http://${req.headers.host}`);
 const pathParts = url.pathname.replace(/^\/api\/sheets\/?/, "").split("/");
 const sheetName = pathParts[0] ? decodeURIComponent(pathParts[0]) : null;
   const action = pathParts[1]; // 'cell', 'row', 'meta'
-  const action = pathParts[1];
 
 try {
 const sheets = await getSheetsClient();
