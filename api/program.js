@@ -1,2 +1,2 @@
-import handler from '../sheets.js';
+import handler from './_lib/sheets.js';
 export default handler;
