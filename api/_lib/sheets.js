@@ -31,7 +31,11 @@ async function getSheetData(sheets, sheetName) {
 module.exports = async function handler(req, res) {
   // ----- CORS -----
   const origin = req.headers.origin || "";
-  const allowedOrigins = ["https://izmir-dt.github.io"];
+  const allowedOrigins = [
+  "https://izmir-dt.github.io",
+  "https://izmir-dt.vercel.app",
+  "https://www.izmir-dt.vercel.app"
+];
 
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
