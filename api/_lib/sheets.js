@@ -1,103 +1,84 @@
-const { google } = require("googleapis");
-
-const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
-
-function getAuthClient() {
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-}
-
-async function getSheetsClient() {
-  const auth = getAuthClient();
-  return google.sheets({ version: "v4", auth });
 }
 
 module.exports = async function handler(req, res) {
-  // ---- CORS ----
+  // CORS headers
+  res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL || "*");
   const origin = req.headers.origin || "";
   const allowedOrigins = [
     "https://izmir-dt.github.io",
-    "http://localhost:5173"
+    "http://localhost:5173",
+    "http://localhost:3000",
   ];
 
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "https://izmir-dt.github.io");
   }
 
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
+if (req.method === "OPTIONS") return res.status(200).end();
 
-  // ---- ROUTING ----
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const parts = url.pathname.replace(/^\/api\/sheets\/?/, "").split("/");
+const url = new URL(req.url, `http://${req.headers.host}`);
+const pathParts = url.pathname.replace(/^\/api\/sheets\/?/, "").split("/");
+const sheetName = pathParts[0] ? decodeURIComponent(pathParts[0]) : null;
+  const action = pathParts[1]; // 'cell', 'row', 'meta'
+  const action = pathParts[1];
 
-  const sheetName = parts[0] ? decodeURIComponent(parts[0]) : null;
-  const action = parts[1];
+try {
+const sheets = await getSheetsClient();
 
-  try {
-    const sheets = await getSheetsClient();
+    // GET /api/sheets — list all sheets
+if (!sheetName && req.method === "GET") {
+const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+const names = (meta.data.sheets || []).map((s) => s.properties?.title || "");
+return res.json({ sheets: names });
+}
 
-    // LIST SHEETS
-    if (!sheetName && req.method === "GET") {
-      const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-      const names = (meta.data.sheets || []).map(s => s.properties.title);
-      return res.json({ sheets: names });
-    }
+    // GET /api/sheets/:name — get sheet data
+if (sheetName && !action && req.method === "GET") {
+try {
+const data = await getSheetData(sheets, sheetName);
+@@ -88,14 +98,12 @@ module.exports = async function handler(req, res) {
+}
+}
 
-    // GET SHEET DATA
-    if (sheetName && !action && req.method === "GET") {
-      const result = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: sheetName,
-      });
+    // GET /api/sheets/:name/meta
+if (sheetName && action === "meta" && req.method === "GET") {
+const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName);
+return res.json({ sheet: sheet?.properties || null });
+}
 
-      const values = result.data.values || [];
-      const headers = values[0] || [];
-      const rows = values.slice(1);
+    // PUT /api/sheets/:name/cell
+if (sheetName && action === "cell" && req.method === "PUT") {
+const { row, col, value } = req.body;
+let oldRowData = null;
+@@ -122,7 +130,6 @@ module.exports = async function handler(req, res) {
+return res.json({ success: true });
+}
 
-      return res.json({ headers, rows });
-    }
+    // POST /api/sheets/:name/row — append row
+if (sheetName && action === "row" && req.method === "POST" && !pathParts[2]) {
+const { values } = req.body;
+const doAppend = async () => {
+@@ -154,7 +161,6 @@ module.exports = async function handler(req, res) {
+return res.json({ success: true });
+}
 
-    // ADD ROW
-    if (sheetName && action === "row" && req.method === "POST") {
-      const body = req.body;
+    // POST /api/sheets/:name/row/insert
+if (sheetName && action === "row" && pathParts[2] === "insert" && req.method === "POST") {
+const { afterRow, values } = req.body;
+const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+@@ -174,7 +180,6 @@ module.exports = async function handler(req, res) {
+return res.json({ success: true });
+}
 
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: sheetName,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [body] }
-      });
-
-      return res.json({ success: true });
-    }
-
-    // UPDATE CELL
-    if (sheetName && action === "cell" && req.method === "POST") {
-      const { row, col, value } = req.body;
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `${sheetName}!${col}${row}`,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [[value]] }
-      });
-
-      return res.json({ success: true });
-    }
-
-    return res.status(404).json({ error: "Not found" });
-
-  } catch (err) {
-    console.error("API Error:", err);
-    return res.status(500).json({ error: err.message });
-  }
-};
+    // DELETE /api/sheets/:name/row/:rowIndex
+if (sheetName && action === "row" && pathParts[2] && req.method === "DELETE") {
+const rowIndex = parseInt(pathParts[2]);
+let deletedRow = null;
