@@ -1,8 +1,9 @@
 {
   "name": "tiyatro-backend",
-  "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "dependencies": {
-    "googleapis": "^148.0.0"
+  "version": "1.0.0",
+  "engines": {
+    "node": "18.x"
   }
 }
