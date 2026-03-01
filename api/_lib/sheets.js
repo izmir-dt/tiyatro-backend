@@ -53,6 +53,24 @@ async function writeNotification(sheets, { tur, oyun, kisi, gorev, aciklama }) {
 
 module.exports = async function handler(req, res) {
   const origin = req.headers.origin || "";
+
+const allowedOrigins = [
+  "https://izmir-dt.github.io",
+  "http://localhost:5173"
+];
+
+if (allowedOrigins.includes(origin)) {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+}
+
+res.setHeader("Access-Control-Allow-Credentials", "true");
+res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+if (req.method === "OPTIONS") {
+  return res.status(200).end();
+}
+  const origin = req.headers.origin || "";
   const allowedOrigins = [
     "https://izmir-dt.github.io",
     "http://localhost:5173",
