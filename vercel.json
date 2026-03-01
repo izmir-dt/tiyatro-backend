@@ -1,1 +1,10 @@
-{}
+{
+  "version": 2,
+  "routes": [
+    { "src": "/api/sheets/(.*)", "dest": "/api/sheets.js" },
+    { "src": "/api/notifications", "dest": "/api/notifications.js" },
+    { "src": "/api/program", "dest": "/api/program.js" },
+    { "src": "/api/sync-figuran", "dest": "/api/sync-figuran.js" },
+    { "src": "/api/archive-play", "dest": "/api/archive-play.js" }
+  ]
+}
