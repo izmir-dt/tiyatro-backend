@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 
-const SPREADSHEET_ID = "13fDL7Eoqm8P16BAqy-4v6loCX2iU8W4eLqWLp6dMMec";
+const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
 
 function getAuthClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -16,8 +16,8 @@ function colToLetter(col) {
     const rem = (col - 1) % 26;
     letter = String.fromCharCode(65 + rem) + letter;
     col = Math.floor((col - 1) / 26);
-  }
-  return letter;
+
+  }  return letter;
 }
 
 async function getSheetsClient() {
