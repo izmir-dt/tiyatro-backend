@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 
-const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
+const SPREADSHEET_ID = "13fDL7Eoqm8P16BAqy-4v6loCX2iU8W4eLqWLp6dMMec";
 
 function getAuthClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -16,8 +16,8 @@ function colToLetter(col) {
     const rem = (col - 1) % 26;
     letter = String.fromCharCode(65 + rem) + letter;
     col = Math.floor((col - 1) / 26);
-
-  }  return letter;
+  }
+  return letter;
 }
 
 async function getSheetsClient() {
@@ -132,9 +132,6 @@ module.exports = async function handler(req, res) {
 
     if (sheetName && action === "row" && req.method === "POST" && !pathParts[2]) {
       const { values } = req.body;
-      // Mevcut satır sayısını al (rowIndex için)
-      let rowsBefore = 0;
-      try { const d = await getSheetData(sheets, sheetName); rowsBefore = d.rows.length; } catch {}
       const doAppend = async () => {
         await sheets.spreadsheets.values.append({
           spreadsheetId: SPREADSHEET_ID,
@@ -161,8 +158,10 @@ module.exports = async function handler(req, res) {
           aciklama: [values[3], values[0], values[2]].filter(Boolean).join(" • ") + " eklendi",
         });
       }
-      return res.json({ success: true, rowIndex: rowsBefore });
-    } && req.method === "POST") {
+      return res.json({ success: true });
+    }
+
+    if (sheetName && action === "row" && pathParts[2] === "insert" && req.method === "POST") {
       const { afterRow, values } = req.body;
       const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
       const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName);
@@ -176,22 +175,6 @@ module.exports = async function handler(req, res) {
       const cellRef = `${sheetName}!A${afterRow + 3}:${colToLetter(colCount)}${afterRow + 3}`;
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID, range: cellRef, valueInputOption: "USER_ENTERED",
-        requestBody: { values: [values] },
-      });
-      return res.json({ success: true });
-    }
-
-    // PUT /:sheet/row/:idx — satırı güncelle
-    if (sheetName && action === "row" && pathParts[2] && req.method === "PUT") {
-      const rowIndex = parseInt(pathParts[2]);
-      const { values } = req.body;
-      if (!Array.isArray(values)) return res.status(400).json({ error: "values array required" });
-      const colCount = values.length;
-      const cellRef = `${sheetName}!A${rowIndex + 2}:${colToLetter(colCount)}${rowIndex + 2}`;
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: cellRef,
-        valueInputOption: "USER_ENTERED",
         requestBody: { values: [values] },
       });
       return res.json({ success: true });
