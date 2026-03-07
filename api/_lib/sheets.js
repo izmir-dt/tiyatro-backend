@@ -79,12 +79,14 @@ module.exports = async function handler(req, res) {
   try {
     const sheets = await getSheetsClient();
 
+    // GET / — tüm sekme adları
     if (!sheetName && req.method === "GET") {
       const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
       const names = (meta.data.sheets || []).map((s) => s.properties?.title || "");
       return res.json({ sheets: names });
     }
 
+    // GET /:sheet — tüm veri
     if (sheetName && !action && req.method === "GET") {
       try {
         const data = await getSheetData(sheets, sheetName);
@@ -98,12 +100,14 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // GET /:sheet/meta
     if (sheetName && action === "meta" && req.method === "GET") {
       const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
       const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName);
       return res.json({ sheet: sheet?.properties || null });
     }
 
+    // PUT /:sheet/cell — tek hücre güncelle
     if (sheetName && action === "cell" && req.method === "PUT") {
       const { row, col, value } = req.body;
       let oldRowData = null;
@@ -130,8 +134,17 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true });
     }
 
+    // POST /:sheet/row — yeni satır ekle, rowIndex döndür
     if (sheetName && action === "row" && req.method === "POST" && !pathParts[2]) {
       const { values } = req.body;
+      
+      // Önce mevcut satır sayısını al (yeni satırın index'ini hesaplamak için)
+      let rowsBefore = 0;
+      try {
+        const existing = await getSheetData(sheets, sheetName);
+        rowsBefore = existing.rows.length;
+      } catch {}
+
       const doAppend = async () => {
         await sheets.spreadsheets.values.append({
           spreadsheetId: SPREADSHEET_ID,
@@ -158,9 +171,11 @@ module.exports = async function handler(req, res) {
           aciklama: [values[3], values[0], values[2]].filter(Boolean).join(" • ") + " eklendi",
         });
       }
-      return res.json({ success: true });
+      // rowsBefore = yeni satırın 0-tabanlı index'i
+      return res.json({ success: true, rowIndex: rowsBefore });
     }
 
+    // POST /:sheet/row/insert — belirli pozisyona ekle
     if (sheetName && action === "row" && pathParts[2] === "insert" && req.method === "POST") {
       const { afterRow, values } = req.body;
       const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
@@ -180,12 +195,13 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true });
     }
 
+    // PUT /:sheet/row/:idx — satırı güncelle
     if (sheetName && action === "row" && pathParts[2] && req.method === "PUT") {
       const rowIndex = parseInt(pathParts[2]);
       const { values } = req.body;
       if (!Array.isArray(values)) return res.status(400).json({ error: "values array required" });
       const colCount = values.length;
-      // rowIndex: 0-tabanlı, data satırı (header hariç) → Sheets'te rowIndex+2. satır
+      // rowIndex: 0-tabanlı data index → Sheets'te rowIndex+2. satır (1=header, 2=ilk data)
       const cellRef = `${sheetName}!A${rowIndex + 2}:${colToLetter(colCount)}${rowIndex + 2}`;
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
@@ -196,6 +212,7 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true });
     }
 
+    // DELETE /:sheet/row/:idx — satırı sil
     if (sheetName && action === "row" && pathParts[2] && req.method === "DELETE") {
       const rowIndex = parseInt(pathParts[2]);
       let deletedRow = null;
