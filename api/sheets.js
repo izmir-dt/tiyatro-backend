@@ -31,10 +31,12 @@ async function getSheetData(sheets, sheetName) {
     range: sheetName,
   });
   const values = res.data.values || [];
-  if (values.length === 0) return { headers: [], rows: [] };
+  if (values.length === 0) return { headers: [], rows: [], rowNumbers: [] };
   const headers = values[0].map((h) => String(h));
   const rows = values.slice(1);
-  return { headers, rows };
+  // Her satırın gerçek Sheets satır numarasını döndür (1-based, header=1)
+  const rowNumbers = rows.map((_, i) => i + 2);
+  return { headers, rows, rowNumbers };
 }
 
 async function writeNotification(sheets, { tur, oyun, kisi, gorev, aciklama }) {
