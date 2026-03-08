@@ -1,6 +1,7 @@
 const { google } = require("googleapis");
 
-const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
+// Önce environment variable'a bak, yoksa eski ID'yi kullan (ana site bozulmasın)
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
 
 function getAuthClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
