@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1B1q6Z132FMjiguerrFPC0V7yiG3M61z6nHTGg2m2G48";
+const SPREADSHEET_ID = "1B1q6Z132FMjiguerrFPC0V7yiG3M61z6nHTGg2m2G48";
 
 function getAuthClient() {
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
@@ -31,12 +31,10 @@ async function getSheetData(sheets, sheetName) {
     range: sheetName,
   });
   const values = res.data.values || [];
-  if (values.length === 0) return { headers: [], rows: [], rowNumbers: [] };
+  if (values.length === 0) return { headers: [], rows: [] };
   const headers = values[0].map((h) => String(h));
   const rows = values.slice(1);
-  // Her satırın gerçek Sheets satır numarasını döndür (1-based, header=1)
-  const rowNumbers = rows.map((_, i) => i + 2);
-  return { headers, rows, rowNumbers };
+  return { headers, rows };
 }
 
 async function writeNotification(sheets, { tur, oyun, kisi, gorev, aciklama }) {
@@ -110,10 +108,10 @@ module.exports = async function handler(req, res) {
       const { row, col, value } = req.body;
       let oldRowData = null;
       if (sheetName === "BÜTÜN OYUNLAR") {
-        try { const d = await getSheetData(sheets, sheetName); oldRowData = d.rows[row - 2] || null; // row=_sheetRow(1-tabanlı), rows[0]=satır2 } catch {}
+        try { const d = await getSheetData(sheets, sheetName); oldRowData = d.rows[row] || null; } catch {}
       }
       const colLetter = colToLetter(col + 1);
-      const cellRef = `${sheetName}!${colLetter}${row}`; // row=_sheetRow, doğrudan A1 notasyonu
+      const cellRef = `${sheetName}!${colLetter}${row + 2}`;
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
         range: cellRef,
@@ -183,17 +181,10 @@ module.exports = async function handler(req, res) {
     }
 
     if (sheetName && action === "row" && pathParts[2] && req.method === "DELETE") {
-      // pathParts[2] = _sheetRow = 1-tabanlı Sheets satır numarası (örn: 5 = 5. satır)
-      const sheetRowNumber = parseInt(pathParts[2]);
-      // deleteDimension 0-tabanlı index bekler: satır 5 → index 4
-      const zeroBasedIndex = sheetRowNumber - 1;
+      const rowIndex = parseInt(pathParts[2]);
       let deletedRow = null;
       if (sheetName === "BÜTÜN OYUNLAR") {
-        try {
-          const d = await getSheetData(sheets, sheetName);
-          // d.rows[0] = Sheets satır 2 (header hariç), d.rows[n] = Sheets satır n+2
-          deletedRow = d.rows[sheetRowNumber - 2] || null;
-        } catch {}
+        try { const d = await getSheetData(sheets, sheetName); deletedRow = d.rows[rowIndex] || null; } catch {}
       }
       const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
       const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetName);
@@ -201,7 +192,7 @@ module.exports = async function handler(req, res) {
       const sheetId = sheet.properties?.sheetId;
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: SPREADSHEET_ID,
-        requestBody: { requests: [{ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: zeroBasedIndex, endIndex: zeroBasedIndex + 1 } } }] },
+        requestBody: { requests: [{ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: rowIndex + 1, endIndex: rowIndex + 2 } } }] },
       });
       if (deletedRow) {
         await writeNotification(sheets, {
