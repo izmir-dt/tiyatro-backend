@@ -15,8 +15,6 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
-// ---- HELPERS (App Script mantığının birebir JS karşılığı) ----
-
 function normalizeText(s) {
   return String(s || "").trim().toLowerCase()
     .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s")
@@ -24,7 +22,6 @@ function normalizeText(s) {
     .replace(/\s+/g, " ");
 }
 
-// Kişi hücresini virgül / noktalı virgül / yeni satır ile böl
 function splitPeopleTokens(text) {
   return String(text || "").replace(/\r/g, "\n").trim()
     .split(/[\n,;]+/g)
@@ -32,12 +29,10 @@ function splitPeopleTokens(text) {
     .filter(Boolean);
 }
 
-// (Figüran) etiketi var mı?
 function hasFiguranTag(token) {
   return /\(\s*fig[üu]ran\s*\)/i.test(String(token || ""));
 }
 
-// (Figüran) etiketini ve tırnak işaretlerini sök
 function stripFiguranTag(token) {
   return String(token || "")
     .replace(/\(\s*fig[üu]ran\s*\)/ig, "")
@@ -59,8 +54,6 @@ function findHeaderIndex(headerArr, candidates) {
   return -1;
 }
 
-// ---- ANA HANDLER ----
-
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "https://izmir-dt.github.io");
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -72,13 +65,40 @@ module.exports = async function handler(req, res) {
   try {
     const sheets = await getSheetsClient();
 
-    // BÜTÜN OYUNLAR'ı oku
-    const result = await sheets.spreadsheets.values.get({
+    // Önce spreadsheet metadata'sından sheet ID'lerini al
+    const meta = await sheets.spreadsheets.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: "'BÜTÜN OYUNLAR'",
     });
 
-    const allRows = result.data.values || [];
+    const sheetList = meta.data.sheets || [];
+    const butunOyunlarSheet = sheetList.find(s => 
+      s.properties.title === "BÜTÜN OYUNLAR" || 
+      normalizeText(s.properties.title) === "butun oyunlar"
+    );
+    const figuranSheet = sheetList.find(s => 
+      s.properties.title === "FİGÜRAN LİSTESİ" ||
+      normalizeText(s.properties.title) === "figuran listesi"
+    );
+
+    if (!butunOyunlarSheet) {
+      return res.status(400).json({ ok: false, error: "BÜTÜN OYUNLAR sayfası bulunamadı" });
+    }
+    if (!figuranSheet) {
+      return res.status(400).json({ ok: false, error: "FİGÜRAN LİSTESİ sayfası bulunamadı" });
+    }
+
+    const butunOyunlarGid = butunOyunlarSheet.properties.sheetId;
+    const figuranGid = figuranSheet.properties.sheetId;
+    const butunOyunlarTitle = butunOyunlarSheet.properties.title;
+    const figuranTitle = figuranSheet.properties.title;
+
+    // batchGet ile veriyi çek - ranges array kullan
+    const result = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: SPREADSHEET_ID,
+      ranges: [butunOyunlarTitle],
+    });
+
+    const allRows = result.data.valueRanges?.[0]?.values || [];
     if (allRows.length < 2) {
       return res.json({ ok: true, guncellenen: 0, mesaj: "Veri yok" });
     }
@@ -95,14 +115,13 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'Kolonlar bulunamadı. Başlıklar: "Oyun Adı", "Kategori", "Görev", "Kişi" bekleniyor.' });
     }
 
-    // kişi adına göre grupla: { kategoriler: Set, gorevler: Set, oyunlar: Set }
     const map = new Map();
 
     for (const row of dataRows) {
-      const oyun       = String(row[colOyun]     || "").trim();
+      const oyun        = String(row[colOyun]     || "").trim();
       const kategoriRaw = String(row[colKategori] || "").trim();
-      const gorevRaw   = String(row[colGorev]    || "").trim();
-      const kisiRaw    = String(row[colKisi]     || "").trim();
+      const gorevRaw    = String(row[colGorev]    || "").trim();
+      const kisiRaw     = String(row[colKisi]     || "").trim();
 
       if (!kisiRaw) continue;
 
@@ -110,7 +129,6 @@ module.exports = async function handler(req, res) {
       const isEmekli  = katNorm.includes("kurumdan emekli");
       const isFiguran = katNorm.includes("figuran");
 
-      // Sadece figüran veya kurumdan emekli kategorisi işlenir
       if (!isEmekli && !isFiguran) continue;
 
       const tokens = splitPeopleTokens(kisiRaw);
@@ -119,15 +137,11 @@ module.exports = async function handler(req, res) {
       let selectedPeople = [];
 
       if (isEmekli) {
-        // Emekli: hücredeki herkesi al, (Figüran) etiketini sök
         selectedPeople = tokens.map(stripFiguranTag).filter(Boolean);
       } else {
         if (tokens.length === 1) {
-          // Tek kişi: direkt al
           selectedPeople = [stripFiguranTag(tokens[0])].filter(Boolean);
         } else {
-          // Çok kişi: sadece (Figüran) etiketli olanları al
-          // Hiç etiket yoksa hepsini al
           const tagged = tokens.filter(hasFiguranTag).map(stripFiguranTag).filter(Boolean);
           selectedPeople = tagged.length ? tagged : tokens.map(stripFiguranTag).filter(Boolean);
         }
@@ -146,10 +160,8 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // Sırala ve çıktı satırlarını oluştur
     const peopleSorted = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, "tr"));
 
-    // Sütunlar: Sıra No, Kişi, Kategori, Görevler, Görev Aldığı Oyunlar
     const outputRows = peopleSorted.map((kisi, index) => {
       const obj = map.get(kisi);
       return [
@@ -161,17 +173,16 @@ module.exports = async function handler(req, res) {
       ];
     });
 
-    // FİGÜRAN LİSTESİ sayfasını temizle (başlık hariç)
+    // FİGÜRAN LİSTESİ'ni temizle ve yaz - batchUpdate kullan
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
-      range: "'FİGÜRAN LİSTESİ'!A2:Z10000",
+      range: `${figuranTitle}!A2:Z10000`,
     });
 
-    // Yeni verileri yaz
     if (outputRows.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: "'FİGÜRAN LİSTESİ'!A2",
+        range: `${figuranTitle}!A2`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: outputRows },
       });
