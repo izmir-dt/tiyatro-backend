@@ -75,7 +75,7 @@ module.exports = async function handler(req, res) {
     // BÜTÜN OYUNLAR'ı oku
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId: SPREADSHEET_ID,
-      range: "BÜTÜN OYUNLAR",
+      range: "'BÜTÜN OYUNLAR'",
     });
 
     const allRows = result.data.values || [];
@@ -164,14 +164,14 @@ module.exports = async function handler(req, res) {
     // FİGÜRAN LİSTESİ sayfasını temizle (başlık hariç)
     await sheets.spreadsheets.values.clear({
       spreadsheetId: SPREADSHEET_ID,
-      range: "FİGÜRAN LİSTESİ!A2:Z10000",
+      range: "'FİGÜRAN LİSTESİ'!A2:Z10000",
     });
 
     // Yeni verileri yaz
     if (outputRows.length > 0) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: "FİGÜRAN LİSTESİ!A2",
+        range: "'FİGÜRAN LİSTESİ'!A2",
         valueInputOption: "USER_ENTERED",
         requestBody: { values: outputRows },
       });
