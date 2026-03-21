@@ -114,7 +114,7 @@ module.exports = async function handler(req, res) {
       return res.json({ sheet: sheet?.properties || null });
     }
 
-    if (sheetName && action === "cell" && req.method === "PUT") {
+    if (sheetName && action === "cell" && (req.method === "PUT" || req.method === "POST")) {
       const { row, col, value } = req.body;
       let oldRowData = null;
       if (sheetName === "BÜTÜN OYUNLAR") {
