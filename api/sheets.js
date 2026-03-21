@@ -71,16 +71,6 @@ module.exports = async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Body parse garantisi — Vercel bazen req.body'yi string olarak geçirir
-  if (req.method !== "GET" && req.method !== "DELETE") {
-    if (typeof req.body === "string") {
-      try { req.body = JSON.parse(req.body); } catch(e) { req.body = {}; }
-    }
-    if (!req.body || typeof req.body !== "object") {
-      req.body = {};
-    }
-  }
-
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathParts = url.pathname.replace(/^\/api\/sheets\/?/, "").split("/");
   const sheetName = pathParts[0] ? decodeURIComponent(pathParts[0]) : null;
@@ -114,7 +104,7 @@ module.exports = async function handler(req, res) {
       return res.json({ sheet: sheet?.properties || null });
     }
 
-    if (sheetName && action === "cell" && (req.method === "PUT" || req.method === "POST")) {
+    if (sheetName && action === "cell" && req.method === "PUT") {
       const { row, col, value } = req.body;
       let oldRowData = null;
       if (sheetName === "BÜTÜN OYUNLAR") {
