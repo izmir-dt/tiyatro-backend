@@ -71,6 +71,16 @@ module.exports = async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
+  // Body parse garantisi — Vercel bazen req.body'yi string olarak geçirir
+  if (req.method !== "GET" && req.method !== "DELETE") {
+    if (typeof req.body === "string") {
+      try { req.body = JSON.parse(req.body); } catch(e) { req.body = {}; }
+    }
+    if (!req.body || typeof req.body !== "object") {
+      req.body = {};
+    }
+  }
+
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathParts = url.pathname.replace(/^\/api\/sheets\/?/, "").split("/");
   const sheetName = pathParts[0] ? decodeURIComponent(pathParts[0]) : null;
