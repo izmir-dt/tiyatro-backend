@@ -1,2 +1,2 @@
-const handler = require('./_lib/sheets.js');
+const handler = require('./sheets.js');
 module.exports = handler;
