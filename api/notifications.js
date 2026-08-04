@@ -4,16 +4,14 @@ const SPREADSHEET_ID = "1sIzswZnMkyRPJejAsE_ylSKzAF0RmFiACP4jYtz-AE0";
 
 function setCors(req, res) {
   const origin = req.headers.origin || "";
-  const allowedOrigins = [
-    "https://izmir-dt.github.io",
-    "http://localhost:5173",
-    "http://localhost:3000",
-  ];
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  } else {
-    res.setHeader("Access-Control-Allow-Origin", "https://izmir-dt.github.io");
-  }
+  const allowed =
+    origin === "https://izmir-dt.github.io" ||
+    /^http:\/\/localhost:\d+$/.test(origin) ||
+    /\.lovable\.app$/.test(origin.replace(/^https?:\/\//, "").split("/")[0] || "");
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    allowed && origin ? origin : "https://izmir-dt.github.io"
+  );
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -52,6 +50,89 @@ async function getSheetId(sheets) {
   return sheet?.properties?.sheetId ?? null;
 }
 
+async function deleteRows(sheets, startIndex, endIndex) {
+  const sheetId = await getSheetId(sheets);
+  if (sheetId === null) return false;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SPREADSHEET_ID,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: { sheetId, dimension: "ROWS", startIndex, endIndex },
+          },
+        },
+      ],
+    },
+  });
+  return true;
+}
+
+function norm(v) {
+  return String(v ?? "").trim();
+}
+
+async function readBody(req) {
+  if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.body === "string" && req.body) {
+    try {
+      return JSON.parse(req.body);
+    } catch (e) {
+      return {};
+    }
+  }
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/**
+ * Tek bir bildirim satırını içeriğine göre bulup siler.
+ * Böylece silme işlemi tüm cihazlarda geçerli olur.
+ */
+async function deleteMatchingRow(sheets, payload) {
+  const { headers, rows } = await getSheetData(sheets);
+  if (!rows.length) return 0;
+
+  const lower = headers.map((h) =>
+    String(h)
+      .replace(/İ/g, "i")
+      .replace(/I/g, "ı")
+      .toLowerCase()
+      .trim()
+  );
+  const ix = (k) => lower.findIndex((h) => h.startsWith(k));
+  const turIx = [ix("işlem"), ix("tür"), ix("tur"), ix("islem")].find((i) => i >= 0);
+  const cols = {
+    tarih: Math.max(0, ix("tarih")),
+    tur: turIx === undefined ? -1 : turIx,
+    oyun: ix("oyun"),
+    kisi: ix("kişi"),
+    gorev: ix("görev"),
+    aciklama: ix("açıklama"),
+  };
+
+  const keys = ["tarih", "tur", "oyun", "kisi", "gorev", "aciklama"];
+  const target = rows.findIndex((row) =>
+    keys.every((k) => {
+      const c = cols[k];
+      if (c < 0) return true;
+      if (payload[k] === undefined) return true;
+      return norm(row[c]) === norm(payload[k]);
+    })
+  );
+
+  if (target < 0) return 0;
+  const rowIndex = target + 1; // başlık satırı offset
+  const ok = await deleteRows(sheets, rowIndex, rowIndex + 1);
+  return ok ? 1 : 0;
+}
+
 module.exports = async function handler(req, res) {
   setCors(req, res);
 
@@ -59,43 +140,31 @@ module.exports = async function handler(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
   const isOldest = url.pathname.endsWith("/oldest");
+  const isDeleteRow = url.pathname.endsWith("/delete-row");
 
   try {
     const sheets = await getSheetsClient();
 
+    // POST /api/notifications/delete-row — tek bildirimi herkes için sil
+    if (isDeleteRow && (req.method === "POST" || req.method === "DELETE")) {
+      const payload = await readBody(req);
+      const deleted = await deleteMatchingRow(sheets, payload);
+      return res.json({ success: true, deleted });
+    }
+
     // GET /api/notifications — tüm bildirimleri getir
-    if (req.method === "GET" && !isOldest) {
+    if (req.method === "GET" && !isOldest && !isDeleteRow) {
       const data = await getSheetData(sheets);
+      res.setHeader("Cache-Control", "no-store");
       return res.json(data);
     }
 
     // DELETE /api/notifications — tüm bildirimleri sil (başlık satırı hariç)
-    if (req.method === "DELETE" && !isOldest) {
+    if (req.method === "DELETE" && !isOldest && !isDeleteRow) {
       const { rows } = await getSheetData(sheets);
       if (rows.length === 0) return res.json({ success: true, deleted: 0 });
-
-      const sheetId = await getSheetId(sheets);
-      if (sheetId === null)
-        return res.status(404).json({ error: "BİLDİRİMLER sheet not found" });
-
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        requestBody: {
-          requests: [
-            {
-              deleteDimension: {
-                range: {
-                  sheetId,
-                  dimension: "ROWS",
-                  startIndex: 1,             // başlık satırını koru
-                  endIndex: rows.length + 1,
-                },
-              },
-            },
-          ],
-        },
-      });
-
+      const ok = await deleteRows(sheets, 1, rows.length + 1);
+      if (!ok) return res.status(404).json({ error: "BİLDİRİMLER sheet not found" });
       return res.json({ success: true, deleted: rows.length });
     }
 
@@ -103,30 +172,9 @@ module.exports = async function handler(req, res) {
     if (req.method === "DELETE" && isOldest) {
       const { rows } = await getSheetData(sheets);
       if (rows.length === 0) return res.json({ success: true, deleted: 0 });
-
       const deleteCount = Math.min(20, rows.length);
-      const sheetId = await getSheetId(sheets);
-      if (sheetId === null)
-        return res.status(404).json({ error: "BİLDİRİMLER sheet not found" });
-
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        requestBody: {
-          requests: [
-            {
-              deleteDimension: {
-                range: {
-                  sheetId,
-                  dimension: "ROWS",
-                  startIndex: 1,              // başlık sonrasından başla
-                  endIndex: 1 + deleteCount,  // ilk N satırı sil
-                },
-              },
-            },
-          ],
-        },
-      });
-
+      const ok = await deleteRows(sheets, 1, 1 + deleteCount);
+      if (!ok) return res.status(404).json({ error: "BİLDİRİMLER sheet not found" });
       return res.json({ success: true, deleted: deleteCount });
     }
 
