@@ -25,16 +25,46 @@ async function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
+// --- Basit bellek-içi cache: 429 kota hatasını azaltmak için ---
+// Vercel serverless fonksiyonu "sıcak" kaldığı sürece bu Map hafızada kalır;
+// aynı sheet'e art arda gelen okuma istekleri Google'a gitmeden karşılanır.
+const CACHE_TTL_MS = 20000; // 20 sn: veri en fazla 20 sn bayat olabilir
+const sheetCache = new Map(); // sheetName -> { data, ts }
+const inFlight = new Map(); // sheetName -> Promise (aynı anda gelen istekleri tekilleştirir)
+
+function invalidateSheetCache(sheetName) {
+  sheetCache.delete(sheetName);
+}
+
 async function getSheetData(sheets, sheetName) {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SPREADSHEET_ID,
-    range: sheetName,
-  });
-  const values = res.data.values || [];
-  if (values.length === 0) return { headers: [], rows: [] };
-  const headers = values[0].map((h) => String(h));
-  const rows = values.slice(1);
-  return { headers, rows };
+  const cached = sheetCache.get(sheetName);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  if (inFlight.has(sheetName)) {
+    return inFlight.get(sheetName);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: sheetName,
+      });
+      const values = res.data.values || [];
+      const data = values.length === 0
+        ? { headers: [], rows: [] }
+        : { headers: values[0].map((h) => String(h)), rows: values.slice(1) };
+      sheetCache.set(sheetName, { data, ts: Date.now() });
+      return data;
+    } finally {
+      inFlight.delete(sheetName);
+    }
+  })();
+
+  inFlight.set(sheetName, fetchPromise);
+  return fetchPromise;
 }
 
 async function writeNotification(sheets, { tur, oyun, kisi, gorev, aciklama }) {
@@ -118,6 +148,7 @@ module.exports = async function handler(req, res) {
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[value]] },
       });
+      invalidateSheetCache(sheetName);
       if (sheetName === "BÜTÜN OYUNLAR" && oldRowData) {
         await writeNotification(sheets, {
           tur: "GÜNCELLENDİ",
@@ -152,6 +183,7 @@ module.exports = async function handler(req, res) {
           await doAppend();
         } else throw appendErr;
       }
+      invalidateSheetCache(sheetName);
       if (sheetName === "BÜTÜN OYUNLAR" && Array.isArray(values)) {
         await writeNotification(sheets, {
           tur: "EKLENDİ", oyun: values[0] || "", kisi: values[3] || "", gorev: values[2] || "",
@@ -177,6 +209,7 @@ module.exports = async function handler(req, res) {
         spreadsheetId: SPREADSHEET_ID, range: cellRef, valueInputOption: "USER_ENTERED",
         requestBody: { values: [values] },
       });
+      invalidateSheetCache(sheetName);
       return res.json({ success: true });
     }
 
@@ -194,6 +227,7 @@ module.exports = async function handler(req, res) {
         spreadsheetId: SPREADSHEET_ID,
         requestBody: { requests: [{ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: rowIndex + 1, endIndex: rowIndex + 2 } } }] },
       });
+      invalidateSheetCache(sheetName);
       if (deletedRow) {
         await writeNotification(sheets, {
           tur: "SİLİNDİ", oyun: String(deletedRow[0] || ""), kisi: String(deletedRow[3] || ""), gorev: String(deletedRow[2] || ""),
