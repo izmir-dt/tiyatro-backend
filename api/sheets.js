@@ -36,14 +36,15 @@ function invalidateSheetCache(sheetName) {
   sheetCache.delete(sheetName);
 }
 
-async function getSheetData(sheets, sheetName) {
-  const cached = sheetCache.get(sheetName);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    return cached.data;
-  }
-
-  if (inFlight.has(sheetName)) {
-    return inFlight.get(sheetName);
+async function getSheetData(sheets, sheetName, skipCache) {
+  if (!skipCache) {
+    const cached = sheetCache.get(sheetName);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data;
+    }
+    if (inFlight.has(sheetName)) {
+      return inFlight.get(sheetName);
+    }
   }
 
   const fetchPromise = (async () => {
@@ -117,7 +118,8 @@ module.exports = async function handler(req, res) {
 
     if (sheetName && !action && req.method === "GET") {
       try {
-        const data = await getSheetData(sheets, sheetName);
+        const skipCache = url.searchParams.get("fresh") === "1";
+        const data = await getSheetData(sheets, sheetName, skipCache);
         return res.json(data);
       } catch (err) {
         const msg = err?.message || "";
